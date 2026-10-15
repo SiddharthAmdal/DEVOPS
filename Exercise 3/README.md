@@ -26,7 +26,7 @@ During a flash sale on an e-commerce platform (like Flipkart’s Big Billion Day
   - Create declarative ReplicaSet manifest with 3 replicas, readiness/liveness probes, and resource constraints ([`flashsale-replicaset.yaml`](./flashsale-replicaset.yaml)).
   - Build container image `flashsale:1.0` inside Minikube.
   - Deploy to cluster, verify 3 running pods and probes, and test traffic routing.
-- [ ] **Phase 3: Dynamic Scaling, Self-Healing Resiliency, Q&A & Operational Scripts**
+- [x] **Phase 3: Dynamic Scaling, Self-Healing Resiliency, Q&A & Operational Scripts**
   - Scale ReplicaSet from 3 to 5 replicas (`kubectl scale rs`).
   - Demonstrate self-healing by deleting a live Pod and observing instant controller recovery.
   - Document pod node distribution and complete theoretical Q&A.
@@ -238,4 +238,166 @@ Notice that the `served_by_pod` value rotates across your active replicas:
 {"item":"Smartphone","served_by_pod":"flashsale-rs-f4gsl","status":"success","time":"12:20:16","user":"customer42"}
 {"item":"Shoes","served_by_pod":"flashsale-rs-nb5kl","status":"success","time":"12:20:17","user":"customer42"}
 ```
+
+---
+
+## Phase 3: Dynamic Scaling, Self-Healing Resiliency, Q&A & Operational Scripts
+
+### 1. Scaling the ReplicaSet to 5 Replicas
+When traffic surges during peak flash sale windows, scale out the ReplicaSet from 3 to 5 instances:
+
+```bash
+kubectl scale rs flashsale-rs --replicas=5
+```
+Expected output:
+```text
+replicaset.apps/flashsale-rs scaled
+```
+
+Verify that the ReplicaSet updated its desired and current counts:
+```bash
+kubectl get rs flashsale-rs
+```
+Expected output:
+```text
+NAME           DESIRED   CURRENT   READY   AGE
+flashsale-rs   5         5         5       5m
+```
+
+Verify that Kubernetes created 2 additional pods:
+```bash
+kubectl get pods -l app=flashsale
+```
+Expected output:
+```text
+NAME                 READY   STATUS    RESTARTS   AGE
+flashsale-rs-8gbfp   1/1     Running   0          5m
+flashsale-rs-f4gsl   1/1     Running   0          5m
+flashsale-rs-nb5kl   1/1     Running   0          5m
+flashsale-rs-nsmlx   1/1     Running   0          25s
+flashsale-rs-wfbb4   1/1     Running   0          25s
+```
+
+All 5 Pods are now registered in `flashsale-svc` Endpoints, instantly multiplying checkout request throughput.
+
+---
+
+### 2. Testing Self-Healing Resiliency (Pod Eviction)
+One of the most critical properties of a ReplicaSet is **self-healing**. If a Pod crashes, suffers an OOM kill, or is manually deleted, Kubernetes automatically detects the mismatch and spawns a replacement clone.
+
+Simulate a server crash by deleting one of the running pods:
+```bash
+kubectl delete pod flashsale-rs-8gbfp
+```
+Expected output:
+```text
+pod "flashsale-rs-8gbfp" deleted
+```
+
+Immediately query the pods list:
+```bash
+kubectl get pods -l app=flashsale
+```
+Expected output:
+```text
+NAME                 READY   STATUS    RESTARTS   AGE
+flashsale-rs-f4gsl   1/1     Running   0          6m
+flashsale-rs-nb5kl   1/1     Running   0          6m
+flashsale-rs-nsmlx   1/1     Running   0          1m
+flashsale-rs-wfbb4   1/1     Running   0          1m
+flashsale-rs-hqtm7   1/1     Running   0          3s
+```
+*Notice that `flashsale-rs-8gbfp` was replaced immediately by `flashsale-rs-hqtm7`.* The system maintained 5 running replicas without human intervention.
+
+---
+
+### 3. Pod-to-Node Distribution Analysis
+Inspect pod distribution across nodes using `-o wide`:
+
+```bash
+kubectl get pods -l app=flashsale -o wide
+```
+Expected output:
+```text
+NAME                 READY   STATUS    RESTARTS   AGE   IP            NODE       NOMINATED NODE   READINESS GATES
+flashsale-rs-f4gsl   1/1     Running   0          7m    10.244.0.6    minikube   <none>           <none>
+flashsale-rs-nb5kl   1/1     Running   0          7m    10.244.0.7    minikube   <none>           <none>
+flashsale-rs-nsmlx   1/1     Running   0          2m    10.244.0.8    minikube   <none>           <none>
+flashsale-rs-wfbb4   1/1     Running   0          2m    10.244.0.9    minikube   <none>           <none>
+flashsale-rs-hqtm7   1/1     Running   0          45s   10.244.0.10   minikube   <none>           <none>
+```
+
+#### Observations:
+* **Single Node Topology**: In a single-node Minikube cluster, all 5 Pods are scheduled onto `minikube`.
+* **Independent Networking**: Each Pod receives a distinct IP address on the CNI overlay network (`10.244.0.6` through `10.244.0.10`).
+* **Multi-Node Production Behavior**: In a multi-node production cluster (e.g., EKS or GKE), the Kubernetes scheduler (`kube-scheduler`) automatically distributes these Pods across multiple physical worker nodes and availability zones to survive hardware failures.
+
+---
+
+### 4. Comprehensive Exercise Q&A
+
+#### Q1: What is the initial number of replicas in the ReplicaSet?
+> **Answer**: `3`. Declared in `spec.replicas: 3` within [`flashsale-replicaset.yaml`](./flashsale-replicaset.yaml).
+
+#### Q2: How many pods are running after applying the ReplicaSet configuration?
+> **Answer**: `3`. Each matching label `app: flashsale`.
+
+#### Q3: What happens when you scale the ReplicaSet to 5 replicas?
+> **Answer**: Kubernetes compares the current state (3) against the updated desired state (5), detects a shortfall of 2, and immediately provisions 2 additional pods (`flashsale-rs-nsmlx`, `flashsale-rs-wfbb4`).
+
+#### Q4: What happens when you delete one pod?
+> **Answer**: Kubernetes detects that the active count dropped to 4 (below the desired 5). The ReplicaSet controller triggers the creation of a replacement pod (`flashsale-rs-hqtm7`) within seconds to preserve the desired state.
+
+#### Q5: How does Kubernetes maintain the desired number of replicas?
+> **Answer**: Through an active **Reconciliation Loop** run by the `kube-controller-manager`'s ReplicaSet controller. It continuously watches the cluster state in `etcd`, calculates `discrepancy = desired - actual`, and creates or deletes pods via the API server until `discrepancy == 0`.
+
+#### Q6: How many nodes are running?
+> **Answer**: `1` control-plane/worker node (`minikube`).
+
+#### Q7: Where are the pods running with respect to nodes?
+> **Answer**:
+> * **Node 1 (`minikube`)**:
+>   - Pod 1 (`flashsale-rs-f4gsl`)
+>   - Pod 2 (`flashsale-rs-nb5kl`)
+>   - Pod 3 (`flashsale-rs-nsmlx`)
+>   - Pod 4 (`flashsale-rs-wfbb4`)
+>   - Pod 5 (`flashsale-rs-hqtm7`)
+>
+> All 5 pods run concurrently on the single `minikube` node.
+
+---
+
+### 5. Advanced Architectural Insight: ReplicaSet vs. Deployment
+Why does Kubernetes documentation recommend using **Deployments** rather than raw **ReplicaSets** directly in production?
+
+| Capability | ReplicaSet | Deployment |
+| :--- | :--- | :--- |
+| **Pod Scaling & Clones** | Yes | Yes (delegates to an underlying ReplicaSet) |
+| **Self-Healing** | Yes | Yes |
+| **Rolling Zero-Downtime Updates** | No (updating pod template does not update running pods) | Yes (progressively swaps old ReplicaSet with a new ReplicaSet) |
+| **Revision History & Rollback** | No | Yes (`kubectl rollout undo`) |
+| **Canary / Blue-Green Strategies** | Manual | Native support via pause / resume |
+
+---
+
+### 6. Operational Automation Scripts
+
+#### Build & Initial Deployment
+Builds container image, applies manifests, waits for 3 ready replicas, and prints endpoints:
+```bash
+./"Exercise 3/build-and-deploy.sh"
+```
+
+#### Dynamic Scaling Script
+Scales the ReplicaSet to any target count (e.g. 5, 8, 2) and waits for rollout:
+```bash
+./"Exercise 3/scale.sh" 5
+```
+
+#### Teardown Script
+Cleans up the ReplicaSet and Service:
+```bash
+./"Exercise 3/cleanup.sh"
+```
+
 
