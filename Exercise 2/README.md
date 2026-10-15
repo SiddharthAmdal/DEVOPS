@@ -46,7 +46,7 @@ Learn Kubernetes fundamentals by deploying a custom Python Flask web application
   - Build local container image `flask-app:latest`.
   - Create declarative Deployment manifest with `imagePullPolicy: Never` ([`flask-deployment.yaml`](./flask-deployment.yaml)).
   - Deploy to cluster, verify replicas, inspect pods and logs, and demonstrate direct port 15000 access limitation.
-- [ ] **Phase 3: Service Exposure (NodePort), End-to-End Routing & Automation**
+- [x] **Phase 3: Service Exposure (NodePort), End-to-End Routing & Automation**
   - Update [`flask-deployment.yaml`](./flask-deployment.yaml) with NodePort Service (`port: 15000`, `targetPort: 15000`).
   - Document port vs targetPort vs nodePort traffic translation.
   - Verify accessibility via Minikube tunnel and `curl`.
@@ -196,4 +196,172 @@ curl: (7) Failed to connect to 127.0.0.1 port 15000 after 1 ms: Couldn't connect
 1. **Isolated Container Namespace**: The Flask app runs inside an isolated Linux network namespace inside the Minikube cluster node.
 2. **Ephemeral Cluster IP**: The Pod is assigned a private cluster IP (e.g., `10.244.0.4`), which is not routable directly from the macOS host network.
 3. **No External Route**: Without a Kubernetes **Service** (such as `NodePort`), no ingress point exists to forward incoming host traffic into the target container port `15000`.
+
+---
+
+## Phase 3: Service Exposure (NodePort), End-to-End Routing & Automation
+
+### 1. Updated Manifest (`flask-deployment.yaml`)
+To bridge the isolation boundary, a `NodePort` Service is declared alongside the Deployment in [`flask-deployment.yaml`](./flask-deployment.yaml):
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app
+  labels:
+    app: flask-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+        - name: flask-app
+          image: flask-app:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 15000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-app-service
+  labels:
+    app: flask-app
+spec:
+  type: NodePort
+  selector:
+    app: flask-app
+  ports:
+    - name: http
+      protocol: TCP
+      port: 15000
+      targetPort: 15000
+```
+
+---
+
+### 2. Traffic Flow & Port Mapping Architecture
+
+```
++-----------------------------------------------------------------------------------+
+| Host System (macOS / WSL)                                                         |
+| Client Request: curl http://127.0.0.1:<allocated-tunnel-port>                    |
++-----------------------------------------------------------------------------------+
+                                       |
+                                       v
++-----------------------------------------------------------------------------------+
+| Minikube Node (Virtual Environment / Docker Bridge)                              |
+| NodePort: 3xxxx (Dynamically allocated in range 30000-32767)                      |
+|                                                                                   |
+|                                       v                                           |
+| Service: flask-app-service (ClusterIP: 10.x.x.x)                                 |
+| port: 15000 (Internal virtual port exposed by Kubernetes Service)                |
+|                                                                                   |
+|                                       v (kube-proxy DNAT via iptables)            |
+| Pod: flask-app-xxxxxx (CNI IP: 10.244.0.x)                                       |
+| targetPort: 15000 (Port listened to by Flask application inside container)       |
++-----------------------------------------------------------------------------------+
+```
+
+#### Key Definitions:
+* **`port: 15000` (Service Port)**: The port exposed by the Kubernetes Service inside the cluster network.
+* **`targetPort: 15000` (Container Port)**: The port on which the Flask server is listening inside the container (`0.0.0.0:15000`).
+* **`nodePort` (Node Port)**: The port opened across all cluster nodes (in range 30000–32767) that proxies external traffic into the Service.
+
+---
+
+### 3. Applying the Manifest
+
+Deploy the updated manifest:
+```bash
+kubectl apply -f "Exercise 2/flask-deployment.yaml"
+```
+Expected output:
+```text
+deployment.apps/flask-app unchanged
+service/flask-app-service created
+```
+
+Verify the service and active endpoints:
+```bash
+kubectl get service flask-app-service
+kubectl get endpoints flask-app-service
+```
+Expected output:
+```text
+NAME                TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)           AGE
+flask-app-service   NodePort   10.104.22.45    <none>        15000:31254/TCP   10s
+
+NAME                ENDPOINTS          AGE
+flask-app-service   10.244.0.4:15000   10s
+```
+
+---
+
+### 4. Accessing the Application
+
+#### Method 1: Using Minikube Service URL (Recommended)
+Generate the reachable URL via Minikube tunnel:
+```bash
+minikube service flask-app-service --url
+```
+Example output:
+```text
+http://127.0.0.1:54321
+! Because you are using a Docker driver on darwin, the terminal needs to be open to run it.
+```
+
+In a separate terminal, test access using `curl`:
+```bash
+curl http://127.0.0.1:54321
+```
+Expected response:
+```text
+Hello from Flask on Kubernetes!
+```
+
+#### Method 2: Local Port-Forwarding
+Forward local port `15000` directly to the service:
+```bash
+kubectl port-forward service/flask-app-service 15000:15000
+```
+Then visit `http://localhost:15000` or curl directly:
+```bash
+curl http://localhost:15000
+```
+
+---
+
+### 5. Automation Helper Scripts
+
+#### Automated Build & Deploy
+Builds image inside Minikube, applies manifest, waits for rollout, and outputs endpoints:
+```bash
+./"Exercise 2/build-and-deploy.sh"
+```
+
+#### Automated Teardown
+Deletes deployment and service cleanly:
+```bash
+./"Exercise 2/cleanup.sh"
+```
+
+---
+
+### 6. DevOps Troubleshooting Matrix
+
+| Symptom | Root Cause | Diagnosis | Fix |
+| :--- | :--- | :--- | :--- |
+| **`ErrImageNeverPull`** | Image not built in Minikube's Docker daemon | `kubectl describe pod -l app=flask-app` | Run `eval $(minikube docker-env)` before `docker build` or use `minikube image build`. |
+| **`CrashLoopBackOff`** | Python error or missing dependency in container | `kubectl logs -l app=flask-app` | Inspect Python traceback; check `requirements.txt`. |
+| **Endpoints `<none>`** | Service selector does not match Pod labels | `kubectl get endpoints flask-app-service` | Verify `spec.selector` in Service matches `spec.template.metadata.labels` in Deployment. |
+| **Connection Refused on URL** | Flask bound only to `127.0.0.1` inside container | Inspect `app.py` | Ensure `app.run(host='0.0.0.0', port=15000)` is specified. |
+
 
