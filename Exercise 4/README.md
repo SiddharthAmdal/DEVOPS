@@ -40,7 +40,7 @@ Understand Docker networking fundamentals, container-to-container communication,
   - Explore default bridge vs. user-defined bridge network mechanics (embedded DNS resolution).
   - Create and inspect custom bridge network `my-bridge-net` (`docker network create`, `docker network inspect`).
   - Implement Flask application ([`app.py`](./app.py)), pinned dependencies ([`requirements.txt`](./requirements.txt)), and diagnostic-ready container specification ([`Dockerfile`](./Dockerfile)).
-- [ ] **Phase 2: Multi-Container Deployment & Host Port Exposure**
+- [x] **Phase 2: Multi-Container Deployment & Host Port Exposure**
   - Build `flask-api` image locally.
   - Launch `mysql`, `redis`, and `flask` containers attached to `my-bridge-net`.
   - Configure host port mapping (`-p 5001:5001`) and verify web API availability via `curl`.
@@ -156,3 +156,100 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 5001
 CMD ["python", "app.py"]
 ```
+
+---
+
+## Phase 2: Multi-Container Deployment & Host Port Exposure
+
+### 1. Step 1: Build the Flask API Image
+Build the container image tagged as `flask-api`:
+
+```bash
+docker build -t flask-api "Exercise 4"
+```
+
+---
+
+### 2. Step 2: Launch Containers on `my-bridge-net`
+Run each container in detached mode (`-d`) attached to the `my-bridge-net` network:
+
+#### 1. MySQL Container
+```bash
+docker run -d --name mysql --net=my-bridge-net -e MYSQL_ROOT_PASSWORD=root mysql:latest
+```
+
+#### 2. Redis Container
+```bash
+docker run -d --name redis --net=my-bridge-net redis:latest
+```
+
+#### 3. Flask API Container (with Host Port Mapping)
+```bash
+docker run -d --name flask --net=my-bridge-net -p 5001:5001 flask-api
+```
+
+---
+
+### 3. Command Flags Deep Dive
+
+| Flag | Purpose | Explanation |
+| :--- | :--- | :--- |
+| **`-d`** | Detached Mode | Runs the container in the background, freeing your terminal. |
+| **`--name <name>`** | Container Name | Assigns a persistent DNS hostname reachable by all containers on the same user-defined bridge. |
+| **`--net=my-bridge-net`** | Network Attachment | Attaches the container to our custom bridge network instead of the default bridge. |
+| **`-p 5001:5001`** | Port Mapping | Binds `HostPort:ContainerPort`. Forwards incoming traffic on the host's `5001` port to the container's internal `5001` port. |
+| **`-e MYSQL_ROOT_PASSWORD=root`** | Environment Variable | Supplies the mandatory root password required by the official MySQL image. |
+
+---
+
+### 4. Step 3: Verify Running Containers & Network Membership
+
+List all active containers:
+```bash
+docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+```
+Expected output:
+```text
+NAMES   IMAGE          STATUS         PORTS
+flask   flask-api      Up 10 seconds  0.0.0.0:5001->5001/tcp
+redis   redis:latest   Up 20 seconds  6379/tcp
+mysql   mysql:latest   Up 30 seconds  3306/tcp, 33060/tcp
+```
+
+Inspect `my-bridge-net` to verify IP allocations:
+```bash
+docker network inspect my-bridge-net
+```
+Under the `"Containers"` block, all 3 containers are assigned sequential private IP addresses on the `172.18.0.0/16` subnet (e.g. `172.18.0.2`, `172.18.0.3`, `172.18.0.4`).
+
+---
+
+### 5. Step 4: Verify Host Access to the Flask API
+Since `flask` was exposed using `-p 5001:5001`, you can access the `/about` endpoint directly from your host:
+
+```bash
+curl -i http://localhost:5001/about
+```
+Expected HTTP response:
+```http
+HTTP/1.0 200 OK
+Content-Type: application/json
+Content-Length: 104
+Server: Werkzeug/2.2.2 Python/3.9...
+
+{
+  "description": "This is a simple REST API built with Flask.",
+  "name": "Simple REST API",
+  "version": "1.0"
+}
+```
+
+---
+
+### 6. Declarative Orchestration Alternative (`docker-compose.yaml`)
+To launch this entire 3-tier architecture with a single command, you can use the included [`docker-compose.yaml`](./docker-compose.yaml):
+
+```bash
+docker compose -f "Exercise 4/docker-compose.yaml" up -d
+```
+
