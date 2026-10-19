@@ -64,7 +64,7 @@ In this exercise, you will design, containerize, and deploy a complete productio
   - Create container specification ([`Dockerfile`](./delivery_monitoring/Dockerfile) & [`.dockerignore`](./delivery_monitoring/.dockerignore)).
   - Build and verify Docker image `delivery_metrics`.
 
-- [ ] **Phase 2: Prometheus Scraping, Alerting Rules & Grafana Dashboard Provisioning**
+- [x] **Phase 2: Prometheus Scraping, Alerting Rules & Grafana Dashboard Provisioning**
   - Configure Prometheus scraping targets ([`prometheus.yml`](./delivery_monitoring/prometheus.yml)).
   - Define operational alerting rules ([`alert_rules.yml`](./delivery_monitoring/alert_rules.yml)) for `HighPendingDeliveries` and `HighAverageDeliveryTime`.
   - Set up Grafana data source configuration and auto-provisioned dashboards with the 4 delivery monitoring panels.
@@ -201,3 +201,111 @@ on_the_way_deliveries 12.0
 average_delivery_time_count 15.0
 average_delivery_time_sum 423.85
 ```
+
+---
+
+## Phase 2: Prometheus Scraping, Alerting Rules & Grafana Dashboard Provisioning
+
+### 1. Prometheus Scrape Configuration (`prometheus.yml`)
+
+The Prometheus server is configured to scrape both itself and the ZAPPTTO delivery metrics service every 15 seconds:
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "delivery_service"
+    static_configs:
+      - targets: ["172.17.0.1:8000"]
+```
+
+#### Key Architecture Notes:
+* **`targets: ["172.17.0.1:8000"]`**: Maps to the host interface from inside Docker bridge networks. (On macOS Docker Desktop, `172.17.0.1` and `host.docker.internal` both cleanly route traffic to services on the host).
+* **`rule_files`**: Directs Prometheus to parse and evaluate `/etc/prometheus/alert_rules.yml` every evaluation interval.
+
+---
+
+### 2. Operational Alerting Rules (`alert_rules.yml`)
+
+Prometheus evaluates threshold rules against incoming delivery telemetry:
+
+```yaml
+groups:
+  - name: delivery_alerts
+    rules:
+      - alert: HighPendingDeliveries
+        expr: pending_deliveries > 10
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High pending deliveries"
+          description: "Pending deliveries are above 10 for the last 15 second."
+
+      - alert: HighAverageDeliveryTime
+        expr: (average_delivery_time_sum / average_delivery_time_count) > 30
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "High average delivery time"
+          description: "Average delivery time is above 30 seconds for the last 15 seconds."
+```
+
+#### Rule Logic:
+1. **`HighPendingDeliveries`**: If the backlog of orders awaiting courier assignment exceeds `10` continuously for `15s`, a `warning` alert transitions from `PENDING` $\rightarrow$ `FIRING`.
+2. **`HighAverageDeliveryTime`**: Computed via `average_delivery_time_sum / average_delivery_time_count` (the mathematical average of all delivery durations observed). If latency exceeds `30` seconds, a `critical` alert fires.
+
+---
+
+### 3. Launching Prometheus
+
+Start the Prometheus container with volumes mounted:
+```bash
+docker run -d --name prometheus -p 9090:9090 \
+  -v "$(pwd)/Exercise 6/delivery_monitoring/prometheus.yml":/etc/prometheus/prometheus.yml \
+  -v "$(pwd)/Exercise 6/delivery_monitoring/alert_rules.yml":/etc/prometheus/alert_rules.yml \
+  prom/prometheus
+```
+
+Verify targets at [http://localhost:9090/targets](http://localhost:9090/targets):
+* `delivery_service`: State **UP** (`http://172.17.0.1:8000/metrics`)
+* `prometheus`: State **UP** (`http://localhost:9090/metrics`)
+
+---
+
+### 4. Grafana Visualizations & Automated Provisioning
+
+To avoid tedious manual setup, Grafana is configured with automated file-based provisioning in [`grafana/provisioning/`](./delivery_monitoring/grafana/provisioning/):
+
+1. **Datasource Provisioning** (`datasources/prometheus.yml`):
+   Automatically binds Prometheus at `http://172.17.0.1:9090` as the default datasource.
+2. **Dashboard Provisioning** (`dashboards/dashboards.yml` & `dashboards/zapptto-delivery-dashboard.json`):
+   Auto-creates the **ZZAPPTO Dashboard** with 4 interactive panels:
+   * **Panel 1: `pending_deliveries`** $\rightarrow$ PromQL: `pending_deliveries`
+   * **Panel 2: `OnTheWayDeliveries`** $\rightarrow$ PromQL: `on_the_way_deliveries`
+   * **Panel 3: `total_deliveries`** $\rightarrow$ PromQL: `total_deliveries`
+   * **Panel 4: `AverageDeliveryTime`** $\rightarrow$ PromQL: `average_delivery_time_sum / average_delivery_time_count`
+
+#### Launch Command:
+```bash
+docker run -d --name grafana -p 3000:3000 \
+  -e "GF_SECURITY_ADMIN_USER=admin" \
+  -e "GF_SECURITY_ADMIN_PASSWORD=admin" \
+  -e "GF_USERS_ALLOW_SIGN_UP=false" \
+  -v "$(pwd)/Exercise 6/delivery_monitoring/grafana/provisioning":/etc/grafana/provisioning \
+  grafana/grafana
+```
+
+Access Grafana at [http://localhost:3000](http://localhost:3000) (Credentials: `admin` / `admin`).
+Navigate to **Dashboards** $\rightarrow$ **Operations** $\rightarrow$ **ZZAPPTO Dashboard** ([http://localhost:3000/d/zapptto-delivery-dash/zzappto-dashboard](http://localhost:3000/d/zapptto-delivery-dash/zzappto-dashboard)).
+
