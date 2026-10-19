@@ -45,7 +45,7 @@ Understand Docker networking fundamentals, container-to-container communication,
   - Launch `mysql`, `redis`, and `flask` containers attached to `my-bridge-net`.
   - Configure host port mapping (`-p 5001:5001`) and verify web API availability via `curl`.
   - Provide declarative `docker-compose.yaml` specification.
-- [ ] **Phase 3: Inter-Container DNS Connectivity Testing, Teardown & Conceptual Q&A**
+- [x] **Phase 3: Inter-Container DNS Connectivity Testing, Teardown & Conceptual Q&A**
   - Execute live container-to-container connectivity tests (`ping mysql`, `ping redis` from inside `flask`).
   - Document network teardown commands and complete theoretical Q&A.
   - Provide automated execution scripts ([`run-network-lab.sh`](./run-network-lab.sh), [`cleanup.sh`](./cleanup.sh)).
@@ -252,4 +252,115 @@ To launch this entire 3-tier architecture with a single command, you can use the
 ```bash
 docker compose -f "Exercise 4/docker-compose.yaml" up -d
 ```
+
+---
+
+## Phase 3: Inter-Container DNS Connectivity Testing, Teardown & Conceptual Q&A
+
+### 1. Task 5: Testing Container-to-Container DNS Connectivity
+
+On a user-defined bridge network (`my-bridge-net`), Docker provides an automatic embedded DNS server at `127.0.0.11`. Containers can communicate using container names as hostnames without needing to know internal IP addresses.
+
+#### Test 1: Ping MySQL from the Flask Container
+Open an interactive terminal or execute the ping command directly inside the `flask` container:
+
+```bash
+docker exec -it flask ping -c 3 mysql
+```
+*Expected Output*:
+```text
+PING mysql (172.18.0.2) 56(84) bytes of data.
+64 bytes from mysql.my-bridge-net (172.18.0.2): icmp_seq=1 ttl=64 time=0.078 ms
+64 bytes from mysql.my-bridge-net (172.18.0.2): icmp_seq=2 ttl=64 time=0.065 ms
+64 bytes from mysql.my-bridge-net (172.18.0.2): icmp_seq=3 ttl=64 time=0.071 ms
+
+--- mysql ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2045ms
+rtt min/avg/max/mdev = 0.065/0.071/0.078/0.005 ms
+```
+*Result*: The container name `mysql` was automatically resolved to its internal bridge IP (`172.18.0.2`).
+
+#### Test 2: Ping Redis from the Flask Container
+```bash
+docker exec -it flask ping -c 3 redis
+```
+*Expected Output*:
+```text
+PING redis (172.18.0.3) 56(84) bytes of data.
+64 bytes from redis.my-bridge-net (172.18.0.3): icmp_seq=1 ttl=64 time=0.081 ms
+64 bytes from redis.my-bridge-net (172.18.0.3): icmp_seq=2 ttl=64 time=0.069 ms
+64 bytes from redis.my-bridge-net (172.18.0.3): icmp_seq=3 ttl=64 time=0.074 ms
+
+--- redis ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2048ms
+rtt min/avg/max/mdev = 0.069/0.074/0.081/0.005 ms
+```
+*Result*: The container name `redis` was automatically resolved to its internal bridge IP (`172.18.0.3`).
+
+---
+
+### 2. Task 6: Teardown & Environment Cleanup
+
+#### Step 1: Stop and Remove Containers
+```bash
+docker stop mysql redis flask && docker rm mysql redis flask
+```
+*Expected Output*:
+```text
+mysql
+redis
+flask
+```
+
+#### Step 2: Remove the Custom Bridge Network
+```bash
+docker network rm my-bridge-net
+```
+*Expected Output*:
+```text
+my-bridge-net
+```
+
+---
+
+### 3. Comprehensive Conceptual Q&A
+
+#### Q1: What is the purpose of the `--net` flag in `docker run`?
+> **Answer**: The `--net` (or `--network`) flag specifies the network to which the container connects upon creation. Attaching multiple containers to the same user-defined bridge network places them in an isolated virtual LAN and activates Docker's embedded DNS service discovery, enabling them to communicate seamlessly using container names.
+
+#### Q2: How do containers communicate with each other on the same network?
+> **Answer**: Containers communicate over private IP addresses or by using **container names** (or network aliases) as hostnames. On user-defined bridge networks, Docker's internal DNS daemon (listening at `127.0.0.11`) intercepts name queries and resolves container names (e.g. `mysql`, `redis`) directly to their container IP addresses.
+
+#### Q3: What is the difference between a bridge network and a host network?
+> **Answer**:
+> * **Bridge Network (Default / Isolated)**:
+>   - Creates an isolated virtual software bridge (e.g. `172.18.0.0/16`).
+>   - Containers receive private, dedicated IP addresses and isolated port namespaces.
+>   - Access from the host machine requires explicit port publishing (`-p <host_port>:<container_port>`).
+>   - *Analogy*: Containers are in private rooms, communicating through defined doors.
+> * **Host Network (`--net=host`)**:
+>   - Disables container network namespace isolation.
+>   - The container shares the host machine’s networking stack, IP address, and interfaces directly.
+>   - A service running on port 5001 inside the container is immediately bound to port 5001 on the host without needing `-p`.
+>   - *Analogy*: Containers are in the same room as the host, talking directly with no barriers.
+
+#### Q4: How can you expose a container's port to the host machine?
+> **Answer**: By using the `-p` (or `--publish`) flag during `docker run`, with the syntax `-p <HostPort>:<ContainerPort>` (for example, `-p 5001:5001`). This adds NAT/iptables rules on the host to forward incoming connections from the host port directly to the listening port inside the container.
+
+---
+
+### 4. Operational Automation Scripts
+
+#### Run End-to-End Networking Lab
+Builds image, provisions network, runs all 3 containers, tests DNS ping to mysql/redis, and tests the Flask API:
+```bash
+./"Exercise 4/run-network-lab.sh"
+```
+
+#### Teardown Lab Environment
+Stops and deletes containers and deletes `my-bridge-net`:
+```bash
+./"Exercise 4/cleanup.sh"
+```
+
 
