@@ -33,7 +33,7 @@ In a production web application, if an attacker executes arbitrary code via a we
   - Write Python automation script ([`apply_apparmor.py`](./apply_apparmor.py)) using Docker SDK.
   - Configure container launch with `security_opt=["apparmor=my-apparmor-profile"]`.
   - Programmatically inspect container `HostConfig.SecurityOpt` to verify profile enforcement.
-- [ ] **Phase 3: Security Restriction Testing, Verification Scripts & Analysis**
+- [x] **Phase 3: Security Restriction Testing, Verification Scripts & Analysis**
   - Implement security verification script ([`test_restricted_actions.py`](./test_restricted_actions.py)).
   - Test blocked file access (`cat /etc/passwd` $\rightarrow$ Exit Code 1).
   - Test blocked binary execution (`/bin/bash` $\rightarrow$ Exit Code 126).
@@ -213,4 +213,121 @@ AppArmor profile applied: ['apparmor=my-apparmor-profile']
 Stopping the container...
 Container stopped and removed.
 ```
+
+---
+
+## Phase 3: Security Restriction Testing, Verification Scripts & Analysis
+
+### 1. Restricted Actions Testing Script (`test_restricted_actions.py`)
+To verify that AppArmor is actively enforcing Mandatory Access Control policies within the running container, [`test_restricted_actions.py`](./test_restricted_actions.py) launches a container with the AppArmor profile attached and executes two restricted commands via `container.exec_run()`:
+
+```python
+import docker
+
+client = docker.from_env()
+
+print("Launching container with AppArmor profile enforcement...")
+try:
+    container = client.containers.run(
+        "flask-apparmor",
+        name="flask-apparmor-test",
+        ports={'5000/tcp': 5000},
+        security_opt=["apparmor=my-apparmor-profile"],
+        detach=True
+    )
+    print(f"Container started: {container.short_id}\n")
+
+    # Test 1: Testing restricted file read (blocked by: deny /etc/** r)
+    print("--- Test 1: Testing restricted file read (cat /etc/passwd) ---")
+    exit_code, output = container.exec_run("cat /etc/passwd")
+    print(f"Attempt to read /etc/passwd: Exit Code {exit_code}, Output: {output.decode().strip()}")
+
+    # Test 2: Testing restricted binary execution (blocked by: deny /bin/** rmix)
+    print("\n--- Test 2: Testing restricted binary execution (/bin/bash) ---")
+    exit_code, output = container.exec_run("/bin/bash")
+    print(f"Attempt to execute /bin/bash: Exit Code {exit_code}, Output: {output.decode().strip()}")
+
+    # Clean up test container
+    print("\nStopping and cleaning up container...")
+    container.stop()
+    container.remove()
+    print("Container stopped and removed successfully.")
+
+except docker.errors.APIError as e:
+    if "apparmor" in str(e).lower() and "profile not found" in str(e).lower():
+        print(f"[NOTE] AppArmor profile 'my-apparmor-profile' must be loaded into the Linux kernel first.")
+        print(f"Load command: sudo apparmor_parser -r /etc/apparmor.d/my-apparmor-profile")
+        print(f"Details: {e}")
+    else:
+        raise e
+```
+
+---
+
+### 2. Deep-Dive: Exit Codes and Enforcement Analysis
+
+When AppArmor enforces restrictions, it intercepts syscalls inside the Linux kernel:
+
+| Test Case | Attempted Command | Governing Profile Rule | Intercepted Syscall | Resulting Exit Code | Explanation |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **Test 1: Sensitive File Read** | `cat /etc/passwd` | `deny /etc/** r,` | `openat()`, `read()` | **`1`** | `cat` starts execution, attempts to open `/etc/passwd`. AppArmor denies the syscall with `EACCES` (Permission denied). `cat` prints `cat: /etc/passwd: Permission denied` to stderr and terminates with standard general error exit code `1`. |
+| **Test 2: Binary Execution** | `/bin/bash` | `deny /bin/** rmix,` | `execve()` | **`126`** | AppArmor intercepts the `execve()` syscall before the shell binary can even be mapped into memory. The kernel returns `EACCES`. In POSIX and bash shell semantics, **Exit Code 126** signifies *"Command invoked cannot execute due to permission or access restriction"*. |
+
+#### Expected Output on an AppArmor-Enforcing Linux Host:
+```text
+Launching container with AppArmor profile enforcement...
+Container started: 7a83d1e9f0c2
+
+--- Test 1: Testing restricted file read (cat /etc/passwd) ---
+Attempt to read /etc/passwd: Exit Code 1, Output: cat: /etc/passwd: Permission denied
+
+--- Test 2: Testing restricted binary execution (/bin/bash) ---
+Attempt to execute /bin/bash: Exit Code 126, Output: /bin/bash: Permission denied
+
+Stopping and cleaning up container...
+Container stopped and removed successfully.
+```
+
+---
+
+### 3. Operational Scripts
+
+#### End-to-End Automated Runner (`setup-and-run.sh`)
+Automates checking AppArmor support, building the Docker image, applying the profile, and running verification tests:
+```bash
+./"Exercise 5/setup-and-run.sh"
+```
+
+#### Teardown & Cleanup (`cleanup.sh`)
+Safely stops and removes all test instances (`flask-apparmor-instance`, `flask-apparmor-test`, `flask-secure`):
+```bash
+./"Exercise 5/cleanup.sh"
+```
+
+---
+
+### 4. Platform & Kernel Compatibility Matrix
+
+* **Ubuntu / Debian / SUSE Linux (Native Bare Metal / Cloud VMs)**:
+  - AppArmor is integrated directly into the host Linux kernel.
+  - Profiles are loaded via `sudo apparmor_parser -r /etc/apparmor.d/<profile>`.
+  - Both CLI (`--security-opt`) and Python SDK (`security_opt`) apply with full kernel enforcement.
+* **macOS / Windows (Docker Desktop)**:
+  - macOS uses the Darwin XNU kernel and does not support AppArmor natively.
+  - Docker Desktop runs Linux containers inside a lightweight LinuxKit virtual machine.
+  - While Docker containers run with default profiles inside the VM, loading custom profiles from host paths requires running `apparmor_parser` within the VM kernel context or using a native Linux deployment.
+  - The Python scripts ([`apply_apparmor.py`](./apply_apparmor.py) and [`test_restricted_actions.py`](./test_restricted_actions.py)) are implemented with graceful error detection for non-Linux hosts.
+
+---
+
+### 5. Verification Checklist
+
+- [x] Flask application containerized using `python:3.8-slim`.
+- [x] AppArmor profile defined with file deny rules (`/etc/**`), binary deny rules (`/bin/**`, `/usr/bin/**`), and capability restrictions (`deny capability sys_admin`).
+- [x] Docker SDK for Python configured with `security_opt=["apparmor=my-apparmor-profile"]`.
+- [x] Verification of container security options using `client.api.inspect_container()`.
+- [x] Automated test script testing restricted actions (`/etc/passwd` and `/bin/bash`).
+- [x] Full analysis of exit codes 1 and 126 documented.
+- [x] Operational scripts [`setup-and-run.sh`](./setup-and-run.sh) and [`cleanup.sh`](./cleanup.sh) provided and tested.
+
 
