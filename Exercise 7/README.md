@@ -126,15 +126,185 @@ In this exercise, you will:
   - Compile comprehensive comparative evaluation of top 10 industry CI/CD platforms.
   - Document Jenkins architecture (Controller vs Agent topologies, ports `8080` and `50000`).
 
-- [ ] **Phase 2: Jenkins Containerization, Volume Persistence & Port Orchestration**
+- [x] **Phase 2: Jenkins Containerization, Volume Persistence & Port Orchestration**
   - Create automated deployment runner ([`install-jenkins.sh`](./install-jenkins.sh)) targeting `jenkins/jenkins:lts`.
   - Configure port forwarding for Web Management (`8080:8080`) and Agent JNLP communication (`50000:50000`).
   - Attach Docker named volume `jenkins_home` for persistent configurations and job history.
   - Implement security token extraction utility ([`get-admin-password.sh`](./get-admin-password.sh)).
   - Provide teardown and volume management script ([`cleanup.sh`](./cleanup.sh)).
 
-- [ ] **Phase 3: Initialization, Verification & Browser Workflow Validation**
+- [x] **Phase 3: Initialization, Verification & Browser Workflow Validation**
   - Launch Jenkins locally and verify container runtime health.
   - Retrieve the active initial administrator password from `/var/jenkins_home/secrets/initialAdminPassword`.
   - Validate the "Unlock Jenkins" administrative authentication gate.
   - Verify suggested plugin installation and main dashboard accessibility (`Welcome to Jenkins!`).
+
+---
+
+## Phase 2: Jenkins Containerization, Volume Persistence & Port Orchestration
+
+### 1. Automated Installation & Deployment (`install-jenkins.sh`)
+
+The deployment script automates provisioning the Jenkins LTS container:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTAINER_NAME="jenkins"
+IMAGE_NAME="jenkins/jenkins:lts"
+VOLUME_NAME="jenkins_home"
+HTTP_PORT="8080"
+AGENT_PORT="50000"
+
+# Remove any existing container to ensure clean initialization
+docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+
+# Run Jenkins with volume persistence and port mappings
+docker run -d \
+  --name "${CONTAINER_NAME}" \
+  -p "${HTTP_PORT}:8080" \
+  -p "${AGENT_PORT}:50000" \
+  -v "${VOLUME_NAME}:/var/jenkins_home" \
+  "${IMAGE_NAME}"
+```
+
+#### Run Command:
+```bash
+./"Exercise 7/install-jenkins.sh"
+```
+
+---
+
+### 2. Port Topologies & Storage Architecture
+
+#### Port Mappings:
+* **`-p 8080:8080` (Web Interface)**:
+  Directs host traffic on port `8080` to the embedded Jetty web server inside the container. This is the entry point for accessing the web UI at [http://localhost:8080](http://localhost:8080).
+* **`-p 50000:50000` (JNLP Agent Port)**:
+  Exposes the inbound communication port used by remote distributed build agents connecting back to the Jenkins controller via the Java Network Launch Protocol (JNLP).
+
+#### Persistent Volume:
+* **`-v jenkins_home:/var/jenkins_home`**:
+  Preserves Jenkins master state across container restarts and updates. This volume holds:
+  - System configuration (`config.xml`)
+  - Installed plugins (`/var/jenkins_home/plugins/`)
+  - Pipeline definitions and jobs (`/var/jenkins_home/jobs/`)
+  - Workspace history and build artifacts
+  - Administrator secrets (`/var/jenkins_home/secrets/`)
+
+---
+
+### 3. Extracting the Initial Administrator Password
+
+Upon first boot, Jenkins locks the user interface to prevent unauthorized access. The setup key is written to a protected file on the container filesystem:
+
+#### Direct Retrieval Command:
+```bash
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+#### Dedicated Extraction Utility (`get-admin-password.sh`):
+```bash
+./"Exercise 7/get-admin-password.sh"
+```
+
+#### Generated Password for This Instance:
+```text
+========================================================================
+ Jenkins Initial Administrator Password:
+ cb47b05bae8a47ee9ab386d48e7151fe
+========================================================================
+Access the portal at: http://localhost:8080
+```
+
+---
+
+### 4. Teardown & Lifecycle Script (`cleanup.sh`)
+
+To cleanly remove the Jenkins container while preserving data:
+```bash
+./"Exercise 7/cleanup.sh"
+```
+
+To purge all data and delete the persistent Docker volume (`jenkins_home`):
+```bash
+./"Exercise 7/cleanup.sh" --all
+```
+
+---
+
+## Phase 3: Initialization, Verification & Browser Workflow Validation
+
+### 1. Step-by-Step Jenkins Onboarding Workflow
+
+#### Step 1: Accessing the Web Interface
+Navigate to [http://localhost:8080](http://localhost:8080) in your web browser. Jenkins displays the **Unlock Jenkins** security gate:
+
+```text
+Unlock Jenkins
+To ensure Jenkins is securely set up by the administrator, a password has been written to the log and this file on the server:
+/var/jenkins_home/secrets/initialAdminPassword
+```
+
+#### Step 2: Unlocking the Controller
+Paste the extracted token into the **Administrator password** field:
+```text
+cb47b05bae8a47ee9ab386d48e7151fe
+```
+Click **Continue**.
+
+---
+
+### 2. Plugin Architecture & Customization
+
+Upon successful authentication, Jenkins prompts for plugin selection:
+
+```
++-------------------------------------------------------------+
+|                      Customize Jenkins                      |
++-------------------------------------------------------------+
+|  [ Install suggested plugins ]  |  [ Select plugins to install ] |
+|  Plugins that the Jenkins       |  Select plugins that best  |
+|  community finds most useful.   |  suit your needs.          |
++-------------------------------------------------------------+
+```
+
+Selecting **Install suggested plugins** automatically downloads, resolves, and activates the foundational suite:
+
+| Plugin Category | Plugins Installed | Purpose in CI/CD |
+| :--- | :--- | :--- |
+| **Organization** | `Folders`, `OWASP Markup Formatter` | Hierarchical job grouping and secure HTML formatting. |
+| **Build & Execution** | `Build Timeout`, `Timestamper`, `Workspace Cleanup` | Safeguarding build runtimes, adding ISO timestamps, and clearing disk space post-build. |
+| **Pipeline Core** | `Pipeline`, `Pipeline: GitHub Groovy Libraries`, `Pipeline Graph View` | Groovy-based pipeline execution engine and visual stage graph rendering. |
+| **Source Control (SCM)**| `Git`, `GitHub Branch Source` | Git cloning, branch indexing, webhook triggers, and commit SHA tracking. |
+| **Security & Auth** | `Credentials Binding`, `Matrix Authorization Strategy`, `PAM Authentication`, `LDAP` | Secure secret injection (API tokens, SSH keys) and granular role-based access control (RBAC). |
+| **Notifications** | `Email Extension`, `Mailer` | Automated build pass/fail email dispatch to committers. |
+| **Agents & Scaling** | `SSH Build Agents` | Provisioning and launching remote worker nodes over SSH. |
+
+---
+
+### 3. Verification & UI Dashboards
+
+Once plugin installation completes, Jenkins leads through optional admin account creation and instance URL confirmation (`http://localhost:8080/`), opening directly into the **Welcome to Jenkins!** main dashboard.
+
+#### Core Dashboard Sections:
+* **Create a Job**: Initiates a new pipeline, freestyle job, or multibranch project.
+* **Build Queue**: Displays scheduled jobs waiting for available executor slots.
+* **Build Executor Status**: Shows real-time agent workloads across master and worker nodes.
+* **Manage Jenkins**: Central hub for system configurations, plugin updates, security credentials, and node topology.
+
+---
+
+### 4. Verification Summary Matrix
+
+| Verification Item | Target / Command | Status | Result / Notes |
+| :--- | :--- | :---: | :--- |
+| **Container Execution** | `docker ps -a \| grep jenkins` | **UP** | Running on ports `8080` (HTTP) and `50000` (JNLP). |
+| **Volume Mount** | `docker inspect jenkins` | **MOUNTED** | Volume `jenkins_home` mounted to `/var/jenkins_home`. |
+| **Credential Retrieval** | `cat /var/jenkins_home/secrets/initialAdminPassword` | **VERIFIED** | Secret `cb47b05bae8a47ee9ab386d48e7151fe` generated. |
+| **HTTP Web Console** | `curl -I http://localhost:8080/login` | **HTTP 200** | Jetty embedded web server responding cleanly. |
+| **Unlock Jenkins Gate** | [http://localhost:8080](http://localhost:8080) | **PASSED** | Admin secret submitted and accepted. |
+| **Plugin Setup** | [http://localhost:8080](http://localhost:8080) | **ACTIVE** | Suggested plugins installed and initialized. |
+
+
