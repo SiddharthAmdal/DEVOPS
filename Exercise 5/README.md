@@ -29,7 +29,7 @@ In a production web application, if an attacker executes arbitrary code via a we
   - Specify dependencies in [`requirements.txt`](./requirements.txt).
   - Create container specification ([`Dockerfile`](./Dockerfile) & [`.dockerignore`](./.dockerignore)).
   - Define custom AppArmor profile ([`my-apparmor-profile`](./my-apparmor-profile)) restricting filesystem, binary execution, and capabilities.
-- [ ] **Phase 2: Docker SDK Integration & Profile Application**
+- [x] **Phase 2: Docker SDK Integration & Profile Application**
   - Write Python automation script ([`apply_apparmor.py`](./apply_apparmor.py)) using Docker SDK.
   - Configure container launch with `security_opt=["apparmor=my-apparmor-profile"]`.
   - Programmatically inspect container `HostConfig.SecurityOpt` to verify profile enforcement.
@@ -117,3 +117,100 @@ docker build -t flask-apparmor "Exercise 5"
 * **`deny /bin/** rmix` & `deny /usr/bin/** rmix`**: Prohibits reading, memory-mapping, or executing (`mix`) any binary in standard system binary directories.
 * **`capability net_bind_service`**: Allows binding to privileged network ports.
 * **`deny capability sys_admin`**: Drops the dangerous `CAP_SYS_ADMIN` capability (often exploited in container escapes).
+
+---
+
+## Phase 2: Docker SDK Integration & Profile Application
+
+### 1. Loading the Profile into the Linux Kernel
+AppArmor operates at the kernel level. Before Docker can attach a profile to a container, the profile definition must be compiled and loaded into the Linux kernel using `apparmor_parser`.
+
+#### On Ubuntu / Debian Hosts:
+```bash
+# 1. Install AppArmor parser utilities if missing
+sudo apt-get update && sudo apt-get install -y apparmor-utils
+
+# 2. Copy the profile to the standard AppArmor directory
+sudo cp "Exercise 5/my-apparmor-profile" /etc/apparmor.d/my-apparmor-profile
+
+# 3. Compile and reload the profile into the Linux kernel
+sudo apparmor_parser -r /etc/apparmor.d/my-apparmor-profile
+
+# 4. Verify the profile is loaded in enforce mode
+sudo aa-status | grep my-apparmor-profile
+```
+
+---
+
+### 2. Manual CLI Application
+Once loaded into the kernel, Docker can apply the profile using the `--security-opt` flag:
+
+```bash
+docker run -d --name flask-secure \
+  --security-opt="apparmor=my-apparmor-profile" \
+  -p 5000:5000 flask-apparmor
+```
+
+Verify that Docker has recorded the security option:
+```bash
+docker inspect flask-secure --format '{{.HostConfig.SecurityOpt}}'
+```
+*Expected Output*: `[apparmor=my-apparmor-profile]`
+
+---
+
+### 3. Programmatic Automation via Docker SDK for Python (`apply_apparmor.py`)
+In automated CI/CD and deployment pipelines, profiles are applied programmatically using Python's official `docker` SDK:
+
+```python
+import docker
+import os
+
+client = docker.from_env()
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+print("Building image from Dockerfile...")
+client.images.build(path=script_dir, tag="flask-apparmor", rm=True)
+print("Successfully built flask-apparmor\n")
+
+print("Running container with AppArmor profile...")
+container = client.containers.run(
+    "flask-apparmor",
+    ports={'5000/tcp': 5000},
+    security_opt=["apparmor=my-apparmor-profile"],
+    detach=True
+)
+
+print(f"Container started: {container.short_id}\n")
+
+print("Inspecting container to verify AppArmor profile...")
+container_info = client.api.inspect_container(container.id)
+apparmor_profile = container_info['HostConfig']['SecurityOpt']
+
+print(f"AppArmor profile applied: {apparmor_profile}\n")
+
+print("Stopping the container...")
+container.stop()
+container.remove()
+print("Container stopped and removed.")
+```
+
+#### Execution & Expected Output:
+```bash
+python apply_apparmor.py
+```
+```text
+Building image from Dockerfile...
+[INFO] Sending build context to Docker daemon  3.072kB
+Successfully built flask-apparmor
+
+Running container with AppArmor profile...
+Container started: f8c2a7f9b9b8
+
+Inspecting container to verify AppArmor profile...
+AppArmor profile applied: ['apparmor=my-apparmor-profile']
+
+Stopping the container...
+Container stopped and removed.
+```
+
