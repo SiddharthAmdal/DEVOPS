@@ -1,0 +1,203 @@
+# Exercise 6: Real-Time Operations Monitoring and Alerting
+
+## Objective
+As a DevOps engineer at **ZAPPTTO** managing an ultra-fast on-demand delivery service, you need real-time operational insights into delivery performance, order backlogs, and latency bottlenecks.
+
+In this exercise, you will design, containerize, and deploy a complete production-grade monitoring and alerting stack utilizing:
+1. **Python (`prometheus_client`)**: To instrument and expose real-time delivery operations metrics (`total_deliveries`, `pending_deliveries`, `on_the_way_deliveries`, `average_delivery_time`) on HTTP endpoint `/metrics`.
+2. **Prometheus**: To scrape operational metrics at regular intervals, evaluate metric expressions, and trigger automated alerts based on configured threshold rules.
+3. **Grafana**: To visualize metrics across interactive real-time dashboards with specialized graphs for delivery status and service duration.
+4. **Jenkins**: To automate the build, containerization, and orchestration lifecycle through a declarative CI/CD pipeline (`Jenkinsfile`).
+
+---
+
+## Architectural Telemetry Workflow
+
+```
++-----------------------------------------------------------------------------------+
+|                              ZAPPTTO Delivery Platform                            |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          | 1. Exposes metrics on :8000/metrics
+                                          v
+                    +------------------------------------------+
+                    |  Python Delivery Service & Simulation    |
+                    |      (delivery_metrics.py on :8000)      |
+                    +------------------------------------------+
+                                          |
+                      2. Periodic Scrapes | (Every 15s HTTP GET)
+                                          v
+                    +------------------------------------------+
+                    |             Prometheus Server            |
+                    |                 (Port 9090)              |
+                    |  * Scrape Targets: :8000, :9090          |
+                    |  * Rule Evaluation (alert_rules.yml)     |
+                    +------------------------------------------+
+                           /                              \
+       3. Queries PromQL  /                                \ 4. Fires Alerts
+                         v                                  v
++-------------------------------+             +----------------------------------+
+|       Grafana Dashboards      |             |         Alert Evaluation         |
+|          (Port 3000)          |             |   * HighPendingDeliveries        |
+|  * Total Deliveries           |             |   * HighAverageDeliveryTime      |
+|  * Pending Deliveries         |             +----------------------------------+
+|  * On-The-Way Deliveries      |
+|  * Average Delivery Duration  |
++-------------------------------+
+                                 ^
+                                 | 5. Automated Build & Deploy
++-----------------------------------------------------------------------------------+
+|                         Jenkins Automation Pipeline (Port 8080)                   |
+|   [Pre-check Docker] -> [Setup Workspace] -> [Build Image] -> [Deploy Services]   |
++-----------------------------------------------------------------------------------+
+```
+
+---
+
+## Exercise Implementation Roadmap
+
+- [x] **Phase 1: Metrics Instrumentation, Python Simulation & Containerization**
+  - Establish `delivery_monitoring/` directory structure.
+  - Define dependencies in [`requirements.txt`](./delivery_monitoring/requirements.txt).
+  - Implement delivery metrics simulation engine ([`delivery_metrics.py`](./delivery_monitoring/delivery_metrics.py)) using `prometheus_client`.
+  - Instrument metrics: `total_deliveries` (Gauge), `pending_deliveries` (Gauge), `on_the_way_deliveries` (Gauge), and `average_delivery_time` (Summary).
+  - Create container specification ([`Dockerfile`](./delivery_monitoring/Dockerfile) & [`.dockerignore`](./delivery_monitoring/.dockerignore)).
+  - Build and verify Docker image `delivery_metrics`.
+
+- [ ] **Phase 2: Prometheus Scraping, Alerting Rules & Grafana Dashboard Provisioning**
+  - Configure Prometheus scraping targets ([`prometheus.yml`](./delivery_monitoring/prometheus.yml)).
+  - Define operational alerting rules ([`alert_rules.yml`](./delivery_monitoring/alert_rules.yml)) for `HighPendingDeliveries` and `HighAverageDeliveryTime`.
+  - Set up Grafana data source configuration and auto-provisioned dashboards with the 4 delivery monitoring panels.
+  - Orchestrate Prometheus and Grafana container services.
+
+- [ ] **Phase 3: Jenkins CI/CD Pipeline, Alert Simulation & End-to-End Verification**
+  - Construct declarative pipeline script ([`Jenkinsfile`](./delivery_monitoring/Jenkinsfile)) handling Docker pre-checks, workspace setup, image building, and multi-service deployment.
+  - Implement alert simulation mode to trigger and verify active alert firing in Prometheus and Grafana.
+  - Provide operational runner scripts ([`run-monitoring.sh`](./run-monitoring.sh), [`cleanup.sh`](./cleanup.sh)).
+  - Conduct full live verification and capture dashboard telemetry.
+
+---
+
+## Phase 1: Metrics Instrumentation, Python Simulation & Containerization
+
+### 1. Prometheus Metric Types Overview
+
+Prometheus supports four fundamental core metric types:
+
+| Metric Type | Characteristics | Use Case in ZAPPTTO |
+| :--- | :--- | :--- |
+| **Gauge** | Numerical value that can arbitrarily go up or down. Represents a instantaneous snapshot. | `total_deliveries`, `pending_deliveries`, `on_the_way_deliveries` |
+| **Summary** | Samples observations (typically request durations or response sizes) and calculates configurable quantiles over a sliding time window. Also provides `_sum` and `_count`. | `average_delivery_time` (seconds taken per completed order) |
+| **Counter** | Cumulative metric that represents a single monotonically increasing counter whose value can only increase or be reset to zero on restart. | Total completed orders, total HTTP requests, system errors |
+| **Histogram** | Samples observations and counts them in configurable bucket intervals, providing `_bucket`, `_sum`, and `_count`. | Complex SLA latency distribution analysis |
+
+---
+
+### 2. Python Metric Simulation Engine (`delivery_metrics.py`)
+
+The application simulates fluctuating order counts and delivery durations, updating Prometheus Gauges and Summaries every second:
+
+```python
+import os
+import random
+import time
+from prometheus_client import start_http_server, Summary, Gauge
+
+# Prometheus Metrics Definitions
+total_deliveries = Gauge("total_deliveries", "Total number of deliveries")
+pending_deliveries = Gauge("pending_deliveries", "Number of pending deliveries")
+on_the_way_deliveries = Gauge("on_the_way_deliveries", "Number of deliveries on the way")
+average_delivery_time = Summary("average_delivery_time", "Average delivery time in seconds")
+
+def simulate_delivery():
+    simulate_high_alerts = os.getenv("SIMULATE_HIGH_ALERTS", "false").lower() in ("true", "1", "yes")
+
+    if simulate_high_alerts:
+        pending = random.randint(50, 100)
+    else:
+        pending = random.randint(10, 20)
+
+    on_the_way = random.randint(5, 20)
+    delivered = random.randint(30, 70)
+    avg_time = random.uniform(15, 45)
+
+    total = pending + on_the_way + delivered
+
+    print(f"[DEBUG] Total deliveries: {total}")
+    print(f"[DEBUG] Pending deliveries: {pending}")
+    print(f"[DEBUG] On-the-way deliveries: {on_the_way}")
+    print(f"[DEBUG] Average delivery time: {avg_time:.2f} seconds")
+
+    total_deliveries.set(total)
+    pending_deliveries.set(pending)
+    on_the_way_deliveries.set(on_the_way)
+    average_delivery_time.observe(avg_time)
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8000))
+    print(f"[INFO] Starting the HTTP server on port {port}...")
+    start_http_server(port, addr="0.0.0.0")
+    print(f"[INFO] HTTP server started. Simulating deliveries at http://0.0.0.0:{port}/metrics...")
+
+    while True:
+        simulate_delivery()
+        print("[INFO] Sleeping for 1 seconds...")
+        time.sleep(1)
+```
+
+---
+
+### 3. Containerization Specification (`Dockerfile`)
+
+```dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source code
+COPY delivery_metrics.py .
+
+EXPOSE 8000
+
+CMD ["python", "delivery_metrics.py"]
+```
+
+#### Build Command:
+```bash
+docker build -t delivery_metrics "Exercise 6/delivery_monitoring"
+```
+
+---
+
+### 4. Running and Verifying Metrics Locally
+
+Run the container in detached mode exposing port 8000:
+```bash
+docker run -d --name delivery_metrics -p 8000:8000 delivery_metrics
+```
+
+Inspect the Prometheus `/metrics` endpoint using `curl`:
+```bash
+curl http://localhost:8000/metrics
+```
+
+#### Sample Metrics Output:
+```text
+# HELP total_deliveries Total number of deliveries
+# TYPE total_deliveries gauge
+total_deliveries 68.0
+# HELP pending_deliveries Number of pending deliveries
+# TYPE pending_deliveries gauge
+pending_deliveries 14.0
+# HELP on_the_way_deliveries Number of deliveries on the way
+# TYPE on_the_way_deliveries gauge
+on_the_way_deliveries 12.0
+# HELP average_delivery_time Average delivery time in seconds
+# TYPE average_delivery_time summary
+average_delivery_time_count 15.0
+average_delivery_time_sum 423.85
+```
