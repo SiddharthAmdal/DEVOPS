@@ -70,7 +70,7 @@ In this exercise, you will design, containerize, and deploy a complete productio
   - Set up Grafana data source configuration and auto-provisioned dashboards with the 4 delivery monitoring panels.
   - Orchestrate Prometheus and Grafana container services.
 
-- [ ] **Phase 3: Jenkins CI/CD Pipeline, Alert Simulation & End-to-End Verification**
+- [x] **Phase 3: Jenkins CI/CD Pipeline, Alert Simulation & End-to-End Verification**
   - Construct declarative pipeline script ([`Jenkinsfile`](./delivery_monitoring/Jenkinsfile)) handling Docker pre-checks, workspace setup, image building, and multi-service deployment.
   - Implement alert simulation mode to trigger and verify active alert firing in Prometheus and Grafana.
   - Provide operational runner scripts ([`run-monitoring.sh`](./run-monitoring.sh), [`cleanup.sh`](./cleanup.sh)).
@@ -308,4 +308,147 @@ docker run -d --name grafana -p 3000:3000 \
 
 Access Grafana at [http://localhost:3000](http://localhost:3000) (Credentials: `admin` / `admin`).
 Navigate to **Dashboards** $\rightarrow$ **Operations** $\rightarrow$ **ZZAPPTO Dashboard** ([http://localhost:3000/d/zapptto-delivery-dash/zzappto-dashboard](http://localhost:3000/d/zapptto-delivery-dash/zzappto-dashboard)).
+
+---
+
+## Phase 3: Jenkins CI/CD Pipeline, Alert Simulation & End-to-End Verification
+
+### 1. Declarative Jenkins Pipeline (`Jenkinsfile`)
+
+The [`delivery_monitoring/Jenkinsfile`](./delivery_monitoring/Jenkinsfile) orchestrates the entire continuous deployment and monitoring lifecycle through 5 distinct stages:
+
+```groovy
+pipeline {
+    agent any
+
+    environment {
+        APP_IMAGE = 'delivery_metrics'
+        CONTAINER_APP = 'delivery_metrics'
+        CONTAINER_PROM = 'prometheus'
+        CONTAINER_GRAFANA = 'grafana'
+    }
+
+    stages {
+        stage('Pre-check Docker') {
+            steps {
+                script {
+                    def dockerVersion = sh(script: 'docker --version', returnStdout: true).trim()
+                    if (!dockerVersion) {
+                        error "Docker is not installed or not in the PATH."
+                    }
+                    def dockerInfo = sh(script: 'docker info', returnStatus: true)
+                    if (dockerInfo != 0) {
+                        error "Docker daemon is not running."
+                    }
+                    echo "Docker is available: ${dockerVersion}"
+                }
+            }
+        }
+
+        stage('Setup Workspace') {
+            steps {
+                echo "Validating workspace configuration files..."
+                sh 'ls -la'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo "Building delivery_metrics image..."
+                sh 'docker build -t ${APP_IMAGE} .'
+            }
+        }
+
+        stage('Run Application') {
+            steps {
+                echo "Deploying delivery_metrics container..."
+                sh '''
+                    docker rm -f ${CONTAINER_APP} 2>/dev/null || true
+                    docker run -d -p 8000:8000 --name ${CONTAINER_APP} ${APP_IMAGE}
+                '''
+            }
+        }
+
+        stage('Run Prometheus & Grafana') {
+            steps {
+                echo "Deploying Prometheus and Grafana..."
+                sh '''
+                    docker rm -f ${CONTAINER_PROM} ${CONTAINER_GRAFANA} 2>/dev/null || true
+                    docker run -d --name ${CONTAINER_PROM} -p 9090:9090 \
+                        -v $WORKSPACE/prometheus.yml:/etc/prometheus/prometheus.yml \
+                        -v $WORKSPACE/alert_rules.yml:/etc/prometheus/alert_rules.yml \
+                        prom/prometheus
+                    docker run -d --name ${CONTAINER_GRAFANA} -p 3000:3000 grafana/grafana
+                '''
+            }
+        }
+    }
+}
+```
+
+#### Running Jenkins in Docker:
+```bash
+# 1. Start Jenkins LTS container
+docker run -d --name jenkins -p 8080:8080 -p 50000:50000 -v jenkins_home:/var/jenkins_home jenkins/jenkins:lts
+
+# 2. Retrieve initial admin password
+docker exec -it jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+
+# 3. Access Jenkins web UI
+open http://localhost:8080
+```
+In Jenkins, select **New Item** $\rightarrow$ **Pipeline**, and paste the pipeline script into the definition block to execute.
+
+---
+
+### 2. Alert Simulation & Threshold Verification
+
+To test incident response and verify Prometheus rule evaluation, [`simulate-alerts.sh`](./simulate-alerts.sh) triggers elevated pending deliveries:
+
+```bash
+# Trigger High Alert Mode (pending deliveries: 50 - 100)
+./"Exercise 6/simulate-alerts.sh"
+```
+
+#### Incident Progression:
+1. `pending_deliveries` immediately jumps into the 50–100 range (exceeding threshold `> 10`).
+2. **0s – 15s (`PENDING` state)**: Prometheus flags the alert condition as pending to prevent false positives from transient spikes.
+3. **> 15s (`FIRING` state)**: The rule duration timer expires; `HighPendingDeliveries` transitions to **`FIRING`** in bright red in the Prometheus Alerts UI.
+
+#### Querying Active Alerts via API:
+```bash
+curl -s http://localhost:9090/api/v1/alerts | python3 -m json.tool
+```
+```text
+🚨 Alert: HighPendingDeliveries | State: FIRING | Value: 7.8e+01
+🚨 Alert: HighAverageDeliveryTime | State: PENDING | Value: 3.69e+01
+```
+
+To restore the simulation back to standard baseline (pending deliveries 10–20):
+```bash
+./"Exercise 6/simulate-alerts.sh" --restore
+```
+
+---
+
+### 3. Operational Automation Scripts
+
+| Script | Purpose | Usage |
+| :--- | :--- | :--- |
+| **[`run-monitoring.sh`](./run-monitoring.sh)** | Builds image and spins up `delivery_metrics`, `prometheus`, and `grafana` with pre-provisioned dashboards. | `./"Exercise 6/run-monitoring.sh"` |
+| **[`simulate-alerts.sh`](./simulate-alerts.sh)** | Simulates traffic spikes (`50-100` pending) to trigger alerts, or restores baseline (`--restore`). | `./"Exercise 6/simulate-alerts.sh"` |
+| **[`cleanup.sh`](./cleanup.sh)** | Stops and removes all monitoring containers cleanly (`delivery_metrics`, `prometheus`, `grafana`, `jenkins`). | `./"Exercise 6/cleanup.sh"` |
+
+---
+
+### 4. Verification Summary Matrix
+
+| Service | Target Port | Status | Verification Check |
+| :--- | :---: | :---: | :--- |
+| **Delivery Metrics Service** | `8000` | **UP** | `curl http://localhost:8000/metrics` returns `total_deliveries`, `pending_deliveries`, `on_the_way_deliveries`, `average_delivery_time` |
+| **Prometheus Server** | `9090` | **UP** | [http://localhost:9090/targets](http://localhost:9090/targets) shows `delivery_service` (1/1 UP) and `prometheus` (1/1 UP) |
+| **Prometheus Alerting** | `9090` | **UP** | [http://localhost:9090/alerts](http://localhost:9090/alerts) validates `HighPendingDeliveries` transitioning to `FIRING` |
+| **Grafana Dashboard** | `3000` | **UP** | [http://localhost:3000/d/zapptto-delivery-dash/zzappto-dashboard](http://localhost:3000/d/zapptto-delivery-dash/zzappto-dashboard) renders all 4 time-series panels |
+| **Jenkins Pipeline** | `8080` | **READY** | Declarative `Jenkinsfile` ready for CI/CD multi-stage automation |
+
 
