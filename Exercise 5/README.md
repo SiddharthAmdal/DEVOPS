@@ -1,4 +1,8 @@
-![alt text](image-1.png)# Exercise 5: Docker Security with AppArmor and Python
+# Exercise 5: Docker Security with AppArmor and Python
+
+> 🔗 **Original Lab Exercise**: [5-Docker-Security-AppArmor.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/5-Docker-Security-AppArmor.md)
+
+![alt text](image-1.png)
 
 ## Objective
 Understand container hardening using **AppArmor** (Application Armor)—a Linux Security Module (LSM) that provides **Mandatory Access Control (MAC)**. In this exercise, you will learn how to:

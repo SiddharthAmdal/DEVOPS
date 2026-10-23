@@ -1,5 +1,7 @@
 # Exercise 2: Deploy a Flask App on Minikube using kubectl and YAML
 
+> 🔗 **Original Lab Exercise**: [2-Minikube-Kubectl-Flask.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/2-Minikube-Kubectl-Flask.md)
+
 ## Objective
 Learn Kubernetes fundamentals by deploying a custom Python Flask web application on a local Minikube cluster using declarative YAML manifests. This exercise explores building container images directly inside Minikube's Docker daemon, understanding image pull policies (`imagePullPolicy: Never`), managing Kubernetes Deployments, and exposing internal container ports via a NodePort Service.
 

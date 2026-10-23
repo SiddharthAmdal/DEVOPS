@@ -1,5 +1,7 @@
 # Exercise 1: Hello Pod (Zepto Storefront Deployment)
 
+> 🔗 **Original Lab Exercise**: [1-Kubernetes-Getting-Started.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/1-Kubernetes-Getting-Started.md)
+
 ## Business Problem
 At **Zepto**, the product engineering team built a lightweight web app that renders the customer-facing storefront and live delivery tracking status. As a DevOps Engineer, your mission is to deploy this containerized application onto Kubernetes so that it is continuously available, portable, and ready for horizontal scaling.
 

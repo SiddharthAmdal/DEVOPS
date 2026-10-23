@@ -1,5 +1,7 @@
 # Exercise 6: Real-Time Operations Monitoring and Alerting
 
+> 🔗 **Original Lab Exercise**: [6-Grafana-Realtime-Monitoring-of-Quick-Commerce-App.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/6-Grafana-Realtime-Monitoring-of-Quick-Commerce-App.md)
+
 ## Objective
 As a DevOps engineer at **ZAPPTTO** managing an ultra-fast on-demand delivery service, you need real-time operational insights into delivery performance, order backlogs, and latency bottlenecks.
 

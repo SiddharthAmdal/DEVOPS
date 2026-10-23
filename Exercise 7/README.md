@@ -1,5 +1,7 @@
 # Exercise 7: Introduction to Continuous Integration (CI) and Jenkins Installation
 
+> 🔗 **Original Lab Exercise**: [7-Jenkins-CI-Automation.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/7-Jenkins-CI-Automation.md)
+
 ## Objective
 Continuous Integration (CI) is a core software development practice where engineers frequently integrate code changes into a shared version-controlled repository. Each integration is verified through automated builds and testing to detect regressions and integration conflicts early.
 

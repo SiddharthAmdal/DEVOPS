@@ -1,5 +1,7 @@
 # Exercise 8: Creating "Hello World" Jenkins Job
 
+> 🔗 **Original Lab Exercise**: [8-Jenkins-Hello-World-Job.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/8-Jenkins-Hello-World-Job.md)
+
 ## Objective
 The objective of this exercise is to understand how Jenkins interacts with version control systems (Git/GitHub) and automates script execution through **Freestyle Projects**.
 

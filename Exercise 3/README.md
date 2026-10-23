@@ -1,5 +1,7 @@
 # Exercise 3: Scaling Flask App on Single Node using ReplicaSets
 
+> 🔗 **Original Lab Exercise**: [3-Minikube-Scaling-Flask-App-with-Replicasets.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/3-Minikube-Scaling-Flask-App-with-Replicasets.md)
+
 ## Real-Life Tech Use Case: E-Commerce Flash Sale
 During a flash sale on an e-commerce platform (like Flipkart’s Big Billion Days or Amazon Prime Day), normal traffic of ~100 requests per minute can instantaneously spike to 10,000+ requests per minute.
 * **The Single-Pod Bottleneck**: If the application runs as a solitary Pod, it will be overwhelmed by concurrent connections, experience severe latency spikes, and crash under the load.

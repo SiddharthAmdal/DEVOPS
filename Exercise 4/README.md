@@ -1,5 +1,7 @@
 # Exercise 4: Docker Networking with Multiple Containers
 
+> 🔗 **Original Lab Exercise**: [4-Docker-Networking.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/4-Docker-Networking.md)
+
 ## Objective
 Understand Docker networking fundamentals, container-to-container communication, and DNS service discovery by configuring a multi-container architecture connected via a custom user-defined bridge network.
 
