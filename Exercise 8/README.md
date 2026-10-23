@@ -62,7 +62,7 @@ In this exercise, you will:
   - Add build step **Execute shell** to run `hello-world.sh`.
   - Automate job creation in the running Jenkins instance ([`create-job.sh`](./create-job.sh)).
 
-- [ ] **Phase 3: Job Execution, Console Output Validation & UI Proof**
+- [x] **Phase 3: Job Execution, Console Output Validation & UI Proof**
   - Trigger build execution (**Build Now**) via Jenkins API / Web UI.
   - Monitor build queue and executor progress.
   - Verify build logs in **Console Output** for `Hello, Jenkins!` and status `SUCCESS`.
@@ -216,4 +216,98 @@ If you prefer configuring the job through the Jenkins graphical interface:
 
 5. **Save**:
    - Click **Save** at the bottom of the page.
+
+---
+
+## Phase 3: Job Execution, Console Output Validation & UI Proof
+
+### 1. Triggering the Build (`build-job.sh`)
+
+To automate triggering the build and retrieving execution logs, [`build-job.sh`](./build-job.sh) executes against the Jenkins REST API:
+
+```bash
+./"Exercise 8/build-job.sh"
+```
+
+#### Live Build Progression:
+```text
+=== [1/4] Retrieving Admin Password from Jenkins Container ===
+Password retrieved successfully.
+=== [2/4] Fetching CSRF Crumb & Session Cookie ===
+=== [3/4] Triggering Build Now for 'HelloWorld' ===
+Build triggered successfully (HTTP 201).
+Waiting for build execution to finish...
+Executing build... (1/30s)Executing build... (2/30s)Executing build... (3/30s)
+Build #1 finished with status: SUCCESS
+
+=== [4/4] Console Output for Build #1 ===
+------------------------------------------------------------------------
+Started by user admin
+Running as SYSTEM
+Building in workspace /var/jenkins_home/workspace/HelloWorld
+The recommended git tool is: NONE
+No credentials specified
+Cloning the remote Git repository
+Cloning repository https://github.com/SiddharthAmdal/DEVOPS.git
+ > git init /var/jenkins_home/workspace/HelloWorld # timeout=10
+Fetching upstream changes from https://github.com/SiddharthAmdal/DEVOPS.git
+ > git --version # timeout=10
+ > git --version # 'git version 2.47.3'
+ > git fetch --tags --force --progress -- https://github.com/SiddharthAmdal/DEVOPS.git +refs/heads/*:refs/remotes/origin/* # timeout=10
+ > git config remote.origin.url https://github.com/SiddharthAmdal/DEVOPS.git # timeout=10
+ > git config --add remote.origin.fetch +refs/heads/*:refs/remotes/origin/* # timeout=10
+Avoid second fetch
+ > git rev-parse refs/remotes/origin/main^{commit} # timeout=10
+Checking out Revision 39a55649f486a18bdd34e3f992b821ec3a340c39 (refs/remotes/origin/main)
+Commit message: "Ex5 Added Image"
+[HelloWorld] $ /bin/sh -xe /tmp/jenkins9206461624232502321.sh
++ echo Hello, Jenkins!
+Hello, Jenkins!
+Finished: SUCCESS
+------------------------------------------------------------------------
+```
+
+---
+
+### 2. Manual Web UI Execution
+
+1. Navigate to the job page: [http://localhost:8080/job/HelloWorld](http://localhost:8080/job/HelloWorld).
+2. Click **Build Now** in the left menu.
+3. Under **Build History**, click on **#1** (or the latest build number).
+4. Click **Console Output** in the left menu to view the real-time execution log.
+
+---
+
+### 3. Visual UI Proof
+
+#### Job Overview (`HelloWorld`):
+The project overview page displays the build history, SCM repository details, and execution actions:
+![Jenkins Job Overview Screen](/Users/Siddharth/.gemini/antigravity-ide/brain/a2c5f70d-00bd-4f01-a54a-a1f04348e399/jenkins_job_overview_1792770543181.png)
+
+#### Console Output (Build #1):
+Displays full Git cloning, workspace resolution, command execution, and clean termination with `Finished: SUCCESS`:
+![Jenkins Console Output Screen](/Users/Siddharth/.gemini/antigravity-ide/brain/a2c5f70d-00bd-4f01-a54a-a1f04348e399/jenkins_console_output_1792770557125.png)
+
+---
+
+### 4. Teardown & Cleanup (`cleanup.sh`)
+
+To cleanly delete the `HelloWorld` job from Jenkins while keeping project files intact:
+```bash
+./"Exercise 8/cleanup.sh"
+```
+
+---
+
+### 5. Verification Summary Matrix
+
+| Verification Item | Target / Command | Status | Result / Notes |
+| :--- | :--- | :---: | :--- |
+| **Script Implementation** | `Exercise 8/devops-sample-code/hello-world.sh` | **PASS** | Executable script printing `Hello, Jenkins!`. |
+| **Job Configuration** | `Exercise 8/job_config.xml` | **VALID** | Freestyle project definition targeting Git repository. |
+| **Job Creation** | `create-job.sh` | **SUCCESS** | Provisioned via Jenkins REST API at `/job/HelloWorld`. |
+| **Build Execution** | `build-job.sh` | **SUCCESS** | Build #1 completed with status `SUCCESS`. |
+| **Console Output** | `/job/HelloWorld/1/console` | **VERIFIED** | Shows git clone, workspace allocation, and `Hello, Jenkins!`. |
+| **Web UI Verification** | [http://localhost:8080/job/HelloWorld](http://localhost:8080/job/HelloWorld) | **ACTIVE** | Job overview and console logs verified in browser. |
+
 
