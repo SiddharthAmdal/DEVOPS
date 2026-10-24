@@ -1,0 +1,96 @@
+pipeline {
+    agent any
+
+    environment {
+        DEPLOY_PATH = "${WORKSPACE}/python-app-deploy"
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                echo 'Creating virtual environment and installing dependencies...'
+                sh '''
+                # Resolve source directory whether running in monorepo or standalone
+                SRC_DIR="."
+                if [ -d "Exercise 9/python-flask-app" ]; then
+                    SRC_DIR="Exercise 9/python-flask-app"
+                elif [ -d "python-flask-app" ]; then
+                    SRC_DIR="python-flask-app"
+                fi
+
+                # Copy files to workspace root for canonical path compatibility
+                cp "${SRC_DIR}/app.py" "${WORKSPACE}/" 2>/dev/null || true
+                cp "${SRC_DIR}/test_app.py" "${WORKSPACE}/" 2>/dev/null || true
+                cp "${SRC_DIR}/requirements.txt" "${WORKSPACE}/" 2>/dev/null || true
+
+                echo "Installing dependencies from requirements.txt..."
+                pip install -r "${SRC_DIR}/requirements.txt" --break-system-packages 2>/dev/null || pip install -r "${SRC_DIR}/requirements.txt" || true
+                '''
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo 'Running tests...'
+                sh 'python3 -m unittest discover -s .'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'Deploying application...'
+                sh '''
+                mkdir -p ${WORKSPACE}/python-app-deploy
+                cp ${WORKSPACE}/app.py ${WORKSPACE}/python-app-deploy/
+                '''
+            }
+        }
+
+        stage('Run Application') {
+            steps {
+                echo 'Running application...'
+                sh '''
+                # Stop existing instance if running
+                if [ -f "${WORKSPACE}/python-app-deploy/app.pid" ]; then
+                    OLD_PID=$(cat "${WORKSPACE}/python-app-deploy/app.pid")
+                    kill -9 "${OLD_PID}" 2>/dev/null || true
+                fi
+
+                nohup python3 ${WORKSPACE}/python-app-deploy/app.py > ${WORKSPACE}/python-app-deploy/app.log 2>&1 &
+                echo $! > ${WORKSPACE}/python-app-deploy/app.pid
+                echo "Application started with PID $(cat ${WORKSPACE}/python-app-deploy/app.pid)"
+                sleep 2
+                '''
+            }
+        }
+
+        stage('Test Application') {
+            steps {
+                echo 'Testing application...'
+                sh '''
+                python3 ${WORKSPACE}/test_app.py
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            sh '''
+            # Gracefully clean up background application process
+            if [ -f "${WORKSPACE}/python-app-deploy/app.pid" ]; then
+                APP_PID=$(cat "${WORKSPACE}/python-app-deploy/app.pid")
+                echo "Cleaning up background application (PID ${APP_PID})..."
+                kill -9 "${APP_PID}" 2>/dev/null || true
+                rm -f "${WORKSPACE}/python-app-deploy/app.pid"
+            fi
+            '''
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed. Check the logs for more details.'
+        }
+    }
+}
