@@ -17,7 +17,7 @@
 | **07** | [7-Jenkins-CI-Automation.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/7-Jenkins-CI-Automation.md) | [Exercise 7: CI Fundamentals & Jenkins Setup](./Exercise%207/README.md) | Continuous Integration, Jenkins Docker Setup, Volume Persistence, Security Unlock | ✅ Completed |
 | **08** | [8-Jenkins-Hello-World-Job.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/8-Jenkins-Hello-World-Job.md) | [Exercise 8: "Hello World" Jenkins Job](./Exercise%208/README.md) | Jenkins Freestyle Jobs, Git SCM Integration, Automated Build Triggers | ✅ Completed |
 | **09** | [9-Jenkins-Multi-Stage-Pipeline.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/9-Jenkins-Multi-Stage-Pipeline.md) | [Exercise 9: Jenkins Multi-Stage Pipeline](./Exercise%209/README.md) | Multi-Stage Declarative Pipeline, Python Flask, Unit Testing, Process Management | ✅ Completed |
-| **10** | [10-Minikube-Multi-Node-Multi-App-Minikube-Deployment.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/10-Minikube-Multi-Node-Multi-App-Minikube-Deployment.md) | Exercise 10 | Multi-Node Minikube Clusters, Multi-App Orchestration | ⏳ Up Next |
+| **10** | [10-Minikube-Multi-Node-Multi-App-Minikube-Deployment.md](https://github.com/SunagP/DevOps-Lab/blob/main/Exercises/10-Minikube-Multi-Node-Multi-App-Minikube-Deployment.md) | [Exercise 10: Multi-Node Minikube Deployment](./Exercise%2010/README.md) | Multi-Node Minikube, ReplicaSets, Pod Anti-Affinity, E-Commerce Microservices | ✅ Completed |
 
 ---
 

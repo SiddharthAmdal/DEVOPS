@@ -6,37 +6,29 @@
 
 set -euo pipefail
 
-PROFILE_NAME="devops-multinode"
+CATALOG_PORT=38081
+CART_PORT=38082
+CATALOG_URL="http://127.0.0.1:${CATALOG_PORT}"
+CART_URL="http://127.0.0.1:${CART_PORT}"
 
-echo "=== [1/3] Resolving Service Endpoints ==="
-# Minikube service URL resolution
-CATALOG_URL=$(minikube -p "${PROFILE_NAME}" service product-catalog-service --url 2>/dev/null || true)
-CART_URL=$(minikube -p "${PROFILE_NAME}" service shopping-cart-service --url 2>/dev/null || true)
+echo "=== [1/3] Establishing Port-Forwards to Kubernetes Services ==="
+# Kill any lingering forwards on ports 38081 or 38082
+lsof -ti:${CATALOG_PORT} | xargs kill -9 2>/dev/null || true
+lsof -ti:${CART_PORT} | xargs kill -9 2>/dev/null || true
 
-# Fallback to port-forward if direct URL is empty (e.g. Docker desktop network isolation)
-PORT_FORWARD_PIDS=()
+kubectl port-forward svc/product-catalog-service ${CATALOG_PORT}:80 >/dev/null 2>&1 &
+PID_CATALOG=$!
+
+kubectl port-forward svc/shopping-cart-service ${CART_PORT}:80 >/dev/null 2>&1 &
+PID_CART=$!
+
 cleanup() {
-    for pid in "${PORT_FORWARD_PIDS[@]}"; do
-        kill -9 "$pid" 2>/dev/null || true
-    done
+    kill -9 "${PID_CATALOG}" "${PID_CART}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-if [ -z "${CATALOG_URL}" ] || ! curl -s -m 2 "${CATALOG_URL}/products" >/dev/null 2>&1; then
-    echo "Starting local port-forward for product-catalog-service (port 38081)..."
-    kubectl port-forward svc/product-catalog-service 38081:80 >/dev/null 2>&1 &
-    PORT_FORWARD_PIDS+=($!)
-    CATALOG_URL="http://127.0.0.1:38081"
-    sleep 2
-fi
-
-if [ -z "${CART_URL}" ] || ! curl -s -m 2 "${CART_URL}/cart" >/dev/null 2>&1; then
-    echo "Starting local port-forward for shopping-cart-service (port 38082)..."
-    kubectl port-forward svc/shopping-cart-service 38082:80 >/dev/null 2>&1 &
-    PORT_FORWARD_PIDS+=($!)
-    CART_URL="http://127.0.0.1:38082"
-    sleep 2
-fi
+# Wait up to 5 seconds for sockets to open
+sleep 2
 
 echo "Product Catalog Service URL: ${CATALOG_URL}"
 echo "Shopping Cart Service URL:   ${CART_URL}"
