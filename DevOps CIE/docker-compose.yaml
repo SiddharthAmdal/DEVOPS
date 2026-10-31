@@ -1,0 +1,63 @@
+version: '3.8'
+
+# ==============================================================================
+# Docker Compose Definition: Food Delivery Platform
+# Demonstrating controlled port exposure and internal bridge communication
+# ==============================================================================
+
+networks:
+  food-delivery-net:
+    name: food-delivery-net
+    driver: bridge
+
+services:
+  # MySQL Database Service (Private, unexposed to host)
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    restart: unless-stopped
+    networks:
+      - food-delivery-net
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: food_delivery_db
+      MYSQL_USER: order_user
+      MYSQL_PASSWORD: order_pass123
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    expose:
+      - "3306"
+
+  # Redis In-Memory Cache Service (Private, unexposed to host)
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - food-delivery-net
+    expose:
+      - "6379"
+
+  # Flask Order Processing Service (Only service exposed to host)
+  flask-order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flask-order-service
+    restart: unless-stopped
+    networks:
+      - food-delivery-net
+    ports:
+      - "5001:5000"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=order_user
+      - MYSQL_PASSWORD=order_pass123
+      - MYSQL_DB=food_delivery_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=5000
+    depends_on:
+      - mysql
+      - redis
